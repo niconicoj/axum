@@ -8,7 +8,7 @@
 
 use axum::{
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
+        ws::{Message, Upgraded, WebSocket, WebSocketUpgrade},
         Extension,
     },
     response::{Html, IntoResponse},
@@ -64,7 +64,7 @@ async fn websocket_handler(
     ws.on_upgrade(|socket| websocket(socket, state))
 }
 
-async fn websocket(stream: WebSocket, state: Arc<AppState>) {
+async fn websocket(stream: WebSocket<Upgraded>, state: Arc<AppState>) {
     // By splitting we can send and receive at the same time.
     let (mut sender, mut receiver) = stream.split();
 
