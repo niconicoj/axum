@@ -8,7 +8,7 @@
 
 use axum::{
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
+        ws::{Message, Upgraded, WebSocket, WebSocketUpgrade},
         TypedHeader,
     },
     http::StatusCode,
@@ -75,7 +75,7 @@ async fn ws_handler(
     ws.on_upgrade(handle_socket)
 }
 
-async fn handle_socket(mut socket: WebSocket) {
+async fn handle_socket(mut socket: WebSocket<Upgraded>) {
     if let Some(msg) = socket.recv().await {
         if let Ok(msg) = msg {
             match msg {

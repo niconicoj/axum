@@ -4,7 +4,7 @@
 //!
 //! ```
 //! use axum::{
-//!     extract::ws::{WebSocketUpgrade, WebSocket},
+//!     extract::ws::{WebSocketUpgrade, WebSocket, Upgraded},
 //!     routing::get,
 //!     response::IntoResponse,
 //!     Router,
@@ -16,7 +16,7 @@
 //!     ws.on_upgrade(handle_socket)
 //! }
 //!
-//! async fn handle_socket(mut socket: WebSocket) {
+//! async fn handle_socket(mut socket: WebSocket<Upgraded>) {
 //!     while let Some(msg) = socket.recv().await {
 //!         let msg = if let Ok(msg) = msg {
 //!             msg
@@ -42,21 +42,21 @@
 //! [`StreamExt::split`]:
 //!
 //! ```
-//! use axum::{Error, extract::ws::{WebSocket, Message}};
+//! use axum::{Error, extract::ws::{WebSocket, Message, Upgraded}};
 //! use futures::{sink::SinkExt, stream::{StreamExt, SplitSink, SplitStream}};
 //!
-//! async fn handle_socket(mut socket: WebSocket) {
+//! async fn handle_socket(mut socket: WebSocket<Upgraded>) {
 //!     let (mut sender, mut receiver) = socket.split();
 //!
 //!     tokio::spawn(write(sender));
 //!     tokio::spawn(read(receiver));
 //! }
 //!
-//! async fn read(receiver: SplitStream<WebSocket>) {
+//! async fn read(receiver: SplitStream<WebSocket<Upgraded>>) {
 //!     // ...
 //! }
 //!
-//! async fn write(sender: SplitSink<WebSocket, Message>) {
+//! async fn write(sender: SplitSink<WebSocket<Upgraded>, Message>) {
 //!     // ...
 //! }
 //! ```
@@ -79,7 +79,8 @@ use http::{
     header::{self, HeaderName, HeaderValue},
     Method, StatusCode,
 };
-use hyper::upgrade::{OnUpgrade, Upgraded};
+use hyper::upgrade::OnUpgrade;
+pub use hyper::upgrade::Upgraded;
 use sha1::{Digest, Sha1};
 use std::{
     borrow::Cow,
@@ -87,6 +88,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
     tungstenite::{
         self as ts,
@@ -201,7 +203,7 @@ impl WebSocketUpgrade {
     /// example.
     pub fn on_upgrade<F, Fut>(self, callback: F) -> Response
     where
-        F: FnOnce(WebSocket) -> Fut + Send + 'static,
+        F: FnOnce(WebSocket<Upgraded>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let on_upgrade = self.on_upgrade;
@@ -307,11 +309,20 @@ fn header_contains<B>(req: &RequestParts<B>, key: HeaderName, value: &'static st
 
 /// A stream of WebSocket messages.
 #[derive(Debug)]
-pub struct WebSocket {
-    inner: WebSocketStream<Upgraded>,
+pub struct WebSocket<S> {
+    inner: WebSocketStream<S>,
 }
 
-impl WebSocket {
+impl<S> WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    ///
+    pub fn new(websocket_stream: WebSocketStream<S>) -> Self {
+        Self {
+            inner: websocket_stream,
+        }
+    }
     /// Receive another message.
     ///
     /// Returns `None` if the stream has closed.
@@ -333,7 +344,10 @@ impl WebSocket {
     }
 }
 
-impl Stream for WebSocket {
+impl<S> Stream for WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     type Item = Result<Message, Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -351,7 +365,10 @@ impl Stream for WebSocket {
     }
 }
 
-impl Sink<Message> for WebSocket {
+impl<S> Sink<Message> for WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     type Error = Error;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
